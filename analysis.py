@@ -241,8 +241,8 @@ def main():
     input_method = st.sidebar.radio("How would you like to input the data?", ("Upload CSVs", "Enter Manually"))
 
     if input_method == "Upload CSVs":
-        portfolio_file = st.sidebar.file_uploader("Upload Portfolio CSV", type="csv")
-        benchmark_file = st.sidebar.file_uploader("Upload Benchmark CSV", type="csv")
+        portfolio_file = st.sidebar.file_uploader("Upload Group 1 Tickers CSV", type="csv")
+        benchmark_file = st.sidebar.file_uploader("Upload Group 2 CSV", type="csv")
         if portfolio_file and benchmark_file:
             portfolio_df = pd.read_csv(portfolio_file)
             benchmark_df = pd.read_csv(benchmark_file)

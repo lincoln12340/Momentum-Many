@@ -4,10 +4,52 @@ import pandas as pd
 import pandas_ta as ta
 from openai import OpenAI
 import plotly.express as px
+from alpha_vantage.timeseries import TimeSeries
+import pandas as pd
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
 client = OpenAI(api_key= api_key)
+
+@st.cache_data(ttl=3600)
+def fetch_alpha_vantage_data(ticker, period):
+    """Fetch data from Alpha Vantage and filter by period"""
+    ts = TimeSeries(key=alpha_vantage_key, output_format='pandas')
+    
+    try:
+        # Get full daily data (we'll filter it later)
+        data, meta_data = ts.get_daily(symbol=ticker, outputsize='full')
+        data.index = pd.to_datetime(data.index)
+        
+        # Filter based on selected period
+        today = pd.Timestamp.today()
+        period_map = {
+            "3 Months": 90,
+            "6 Months": 180,
+            "1 Year": 365
+        }
+        cutoff_days = period_map.get(period, 365)
+        cutoff_date = today - pd.Timedelta(days=cutoff_days)
+
+        filtered_data = data[data.index >= cutoff_date]
+
+        
+        #filtered_data = data.last(period_map.get(period, "1Y"))
+        
+        # Rename columns to match yfinance format
+        filtered_data = filtered_data.rename(columns={
+            '1. open': 'Open',
+            '2. high': 'High',
+            '3. low': 'Low',
+            '4. close': 'Close',
+            '5. volume': 'Volume'
+        })
+        
+        return filtered_data.sort_index()
+    
+    except Exception as e:
+        st.error(f"Alpha Vantage Error: {str(e)}")
+        return None
 
 def gather_data(portfolio_results, benchmark_results, Results):
     gathered_data = {
@@ -44,14 +86,15 @@ def check_ticker_validity_and_download(tickers,timeframe):
     data_dict = {}
     for ticker in tickers:
         try:
-            if timeframe == "3 Months":
-                data = yf.download(ticker, period="3mo")
-            elif timeframe == "6 Months":
-                data = yf.download(ticker, period="6mo")
-            elif timeframe == "1 Year":
-                data = yf.download(ticker, period="1y")
+            #if timeframe == "3 Months":
+                #data = yf.download(ticker, period="3mo")
+            #elif timeframe == "6 Months":
+                #data = yf.download(ticker, period="6mo")
+            #elif timeframe == "1 Year":
+                #data = yf.download(ticker, period="1y")
 
-            data.columns = data.columns.droplevel(1)
+            #data.columns = data.columns.droplevel(1)
+            data = fetch_alpha_vantage_data(ticker, timeframe)
             if not data.empty:
                 validity_results.append({"Ticker": ticker, "Valid": True})
                 data_dict[ticker] = data

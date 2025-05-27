@@ -95,8 +95,8 @@ def check_ticker_validity_and_download(tickers,timeframe):
 
             #data.columns = data.columns.droplevel(1)
             data = fetch_alpha_vantage_data(ticker, timeframe)
-            print("hello")
-            print(data)
+            st.write("Hello")
+            st.write(data)
             
             if not data.empty:
                 validity_results.append({"Ticker": ticker, "Valid": True})

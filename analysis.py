@@ -339,7 +339,7 @@ def main():
             st.subheader("Portfolio Contribution by Ticker")
             fig = px.bar(
                 portfolio_results,
-                x='ticker',
+                x='Ticker',
                 y='Average_Weighted_Score',
                 title='Portfolio Contribution by Ticker',
                 labels={'Average_Weighted_Score': 'Average Weighted Score'}
@@ -349,7 +349,7 @@ def main():
             st.subheader("Benchmark Contribution by Ticker")
             fig = px.bar(
                 benchmark_results,
-                x='ticker',
+                x='Ticker',
                 y='Average_Weighted_Score',
                 title='Benchmark Contribution by Ticker',
                 labels={'Average_Weighted_Score': 'Average Weighted Score'}

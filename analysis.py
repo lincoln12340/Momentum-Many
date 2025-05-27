@@ -329,6 +329,7 @@ def main():
             st.write(analysis)
 
         with st.expander("Graphs"):
+            st.write(portfolio_results)
 
             st.subheader("Portfolio Contribution by Ticker")
             fig = px.bar(

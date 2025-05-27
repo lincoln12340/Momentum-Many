@@ -8,7 +8,7 @@ from alpha_vantage.timeseries import TimeSeries
 import time
 
 api_key = st.secrets["OPENAI_API_KEY"]
-
+alpha_vantage_key = st.secrets["ALPHA_VANTAGE_API_KEY"]
 client = OpenAI(api_key= api_key)
 
 @st.cache_data(ttl=3600)

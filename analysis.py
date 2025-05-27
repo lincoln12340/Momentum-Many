@@ -308,6 +308,7 @@ def main():
         with st.expander("Progress Tracker"):
             st.write("Starting Analysis...")
             with st.spinner("Processing Portfolio Data..."):
+                st.write(portfolio_df)
                 portfolio_results = calculate_scores(portfolio_df,indicator_weights,timeframe)
                 progress_bar.progress(50)
 

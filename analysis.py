@@ -6,6 +6,7 @@ from openai import OpenAI
 import plotly.express as px
 from alpha_vantage.timeseries import TimeSeries
 import pandas as pd
+import time
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
@@ -84,7 +85,7 @@ def calculate_indicators_with_weights(data, weights):
 def check_ticker_validity_and_download(tickers,timeframe):
     validity_results = []
     data_dict = {}
-    st.write(tickers)
+    
     for ticker in tickers:
         try:
             #if timeframe == "3 Months":

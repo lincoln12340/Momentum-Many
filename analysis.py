@@ -5,7 +5,6 @@ import pandas_ta as ta
 from openai import OpenAI
 import plotly.express as px
 from alpha_vantage.timeseries import TimeSeries
-import pandas as pd
 import time
 
 api_key = st.secrets["OPENAI_API_KEY"]
@@ -88,7 +87,7 @@ def check_ticker_validity_and_download(tickers,timeframe):
     data_dict = {}
     
     for ticker in tickers:
-        try:
+        
             #if timeframe == "3 Months":
                 #data = yf.download(ticker, period="3mo")
             #elif timeframe == "6 Months":
@@ -97,17 +96,16 @@ def check_ticker_validity_and_download(tickers,timeframe):
                 #data = yf.download(ticker, period="1y")
 
             #data.columns = data.columns.droplevel(1)
-            data = fetch_alpha_vantage_data(ticker, timeframe)
+        data = fetch_alpha_vantage_data(ticker, timeframe)
            
             
-            if not data.empty:
-                validity_results.append({"Ticker": ticker, "Valid": True})
-                data_dict[ticker] = data
-            else:
-                validity_results.append({"Ticker": ticker, "Valid": False})
-        except Exception:
+        if not data.empty:
+            validity_results.append({"Ticker": ticker, "Valid": True})
+            data_dict[ticker] = data
+        else:
             validity_results.append({"Ticker": ticker, "Valid": False})
-    st.write(validity_results)
+
+
     return pd.DataFrame(validity_results), data_dict
 
 # Function to calculate scores

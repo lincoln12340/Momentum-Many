@@ -45,7 +45,7 @@ def fetch_alpha_vantage_data(ticker, period):
             '4. close': 'Close',
             '5. volume': 'Volume'
         })
-        print(filtered_data)
+        st.write(filtered_data)
         
         return filtered_data.sort_index()
     

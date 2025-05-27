@@ -95,6 +95,7 @@ def check_ticker_validity_and_download(tickers,timeframe):
 
             #data.columns = data.columns.droplevel(1)
             data = fetch_alpha_vantage_data(ticker, timeframe)
+            
             if not data.empty:
                 validity_results.append({"Ticker": ticker, "Valid": True})
                 data_dict[ticker] = data
@@ -102,6 +103,7 @@ def check_ticker_validity_and_download(tickers,timeframe):
                 validity_results.append({"Ticker": ticker, "Valid": False})
         except Exception:
             validity_results.append({"Ticker": ticker, "Valid": False})
+    st.write(validity_results)
     return pd.DataFrame(validity_results), data_dict
 
 # Function to calculate scores

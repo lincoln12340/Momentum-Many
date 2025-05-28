@@ -129,78 +129,78 @@ def calculate_scores(components, indicator_weights,timeframe):
 
 def portfolio_vs_benchmark(portfolio_results):
     chat_completion = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {
-            "role": "system",
-            "content": (
-                """Purpose of the Analysis 
-                The output is designed to:
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    """Purpose of the Analysis 
+                    The output is designed to:
+    
+                    Provide actionable insights for investment analysts.
+                    Focus on momentum-based performance metrics, such as weighted scores.
+                    Offer structured, professional-level analysis across individual tickers and sector insights within a single dataset.
+    
+                    Audience and Tone:
+                    Audience: Investment analysts or finance professionals.
+                    Tone: Professional, data-driven, and insightful.
+    
+                    Output Structure:
+                    1. Introduction
+                    - Describe the dataset and purpose of the analysis.
+                    - Explain the metrics used: Weighted Score (derived from RSI, Rate of Change, Momentum).
+    
+                    2. Ticker Performance Comparison
+                    - Compare all tickers statistically.
+                    - Report the mean, range, and standard deviation of scores.
+                    - Rank tickers by momentum performance.
+                    - Identify top and bottom performers, and any clustering of strong/weak momentum.
+    
+                    3. Individual Ticker Analysis
+                    - For each ticker, present:
+                      • Ticker Symbol
+                      • Company Name (if known)
+                      • Sector (if available)
+                      • Weighted Score
+                      • One-sentence performance insight
+    
+                    4. Sector Analysis
+                    - Group tickers by sector (if sector info is available).
+                    - Identify sector-wide performance trends.
+                    - Note any standout or underperforming sectors.
+    
+                    5. Key Takeaways & Investment Recommendations
+                    - Summarize strongest-performing tickers.
+                    - Highlight sector trends.
+                    - Offer actionable ideas (e.g., tickers to monitor, momentum leaders).
+    
+                    Notes:
+                    - Adjust section structure if some metadata (e.g., sectors) is missing.
+                    - Avoid comparing to a benchmark—focus is on intra-group dynamics and ranking.
+                    - Maintain a concise, clear tone suitable for analyst reporting.
+                    """
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"""Please analyze the following ticker dataset using momentum-based metrics and provide structured insights.
+    
+                    Dataset: {portfolio_results}
+    
+                    Goals:
+                    - Compare tickers against one another based on average weighted score.
+                    - Rank the tickers and identify leaders/laggards.
+                    - Provide sector-level analysis if sector data is available.
+                    - Offer investment recommendations based on the momentum trends observed.
+                    """
+                ),
+            },
+        ]
+    )
 
-                Provide actionable insights for investment analysts.
-                Focus on momentum-based performance metrics, such as weighted scores.
-                Offer structured, professional-level analysis across individual tickers and sector insights within a single dataset.
-
-                Audience and Tone:
-                Audience: Investment analysts or finance professionals.
-                Tone: Professional, data-driven, and insightful.
-
-                Output Structure:
-                1. Introduction
-                - Describe the dataset and purpose of the analysis.
-                - Explain the metrics used: Weighted Score (derived from RSI, Rate of Change, Momentum).
-
-                2. Ticker Performance Comparison
-                - Compare all tickers statistically.
-                - Report the mean, range, and standard deviation of scores.
-                - Rank tickers by momentum performance.
-                - Identify top and bottom performers, and any clustering of strong/weak momentum.
-
-                3. Individual Ticker Analysis
-                - For each ticker, present:
-                  • Ticker Symbol
-                  • Company Name (if known)
-                  • Sector (if available)
-                  • Weighted Score
-                  • One-sentence performance insight
-
-                4. Sector Analysis
-                - Group tickers by sector (if sector info is available).
-                - Identify sector-wide performance trends.
-                - Note any standout or underperforming sectors.
-
-                5. Key Takeaways & Investment Recommendations
-                - Summarize strongest-performing tickers.
-                - Highlight sector trends.
-                - Offer actionable ideas (e.g., tickers to monitor, momentum leaders).
-
-                Notes:
-                - Adjust section structure if some metadata (e.g., sectors) is missing.
-                - Avoid comparing to a benchmark—focus is on intra-group dynamics and ranking.
-                - Maintain a concise, clear tone suitable for analyst reporting.
-                """
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"""Please analyze the following ticker dataset using momentum-based metrics and provide structured insights.
-
-                Dataset: {portfolio_results}
-
-                Goals:
-                - Compare tickers against one another based on average weighted score.
-                - Rank the tickers and identify leaders/laggards.
-                - Provide sector-level analysis if sector data is available.
-                - Offer investment recommendations based on the momentum trends observed.
-                """
-            ),
-        },
-    ]
-)
-
-response = chat_completion.choices[0].message.content
-return response
+    response = chat_completion.choices[0].message.content
+    return response
 
     
 

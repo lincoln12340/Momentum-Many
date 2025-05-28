@@ -293,7 +293,7 @@ def main():
             #)
             #st.plotly_chart(fig)
 
-        ovr_result = gather_data(portfolio_results, benchmark_results, analysis)
+        ovr_result = gather_data(portfolio_results, analysis)
         st.session_state["gathered_data"] = ovr_result
         st.session_state["analysis_complete"] = True  # Mark analysis as complete
         st.success("Group analysis completed! You can now proceed to the AI Chatbot.")

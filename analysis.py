@@ -127,6 +127,7 @@ def calculate_scores(components, indicator_weights,timeframe):
 
 # Function to compare portfolio and benchmark
 def portfolio_vs_benchmark(portfolio_results, benchmark_results):
+    
     #portfolio_score = portfolio_results['Average_Weighted_Score'].mean()
     #benchmark_score = benchmark_results['Average_Weighted_Score'].mean()
 
@@ -136,137 +137,83 @@ def portfolio_vs_benchmark(portfolio_results, benchmark_results):
     # Identify single components impacting results significantly
     #top_portfolio_contributors = portfolio_results.nlargest(3, 'Average_Weighted_Score')
     #top_benchmark_contributors = benchmark_results.nlargest(3, 'Average_Weighted_Score')
+    
 
   
 
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    """Purpose of the Analysis 
-                    The output is designed to:
+    model="gpt-4o",
+    messages=[
+        {
+            "role": "system",
+            "content": (
+                """Purpose of the Analysis 
+                The output is designed to:
 
-                    Provide actionable insights for investment analysts.
-                    Focus on momentum-based performance metrics, such as weighted scores.
-                    Offer structured, professional-level analysis, combining individual company, group-level, and sector-specific evaluations.
-                    2. Audience and Tone
-                    Audience: Investment analysts or finance professionals seeking insights for decision-making.
-                    Tone: Professional, data-driven, and insightful. Use precise language that is easy to follow while maintaining analytical depth.
-                    3. Output Structure
-                    Introduction
+                Provide actionable insights for investment analysts.
+                Focus on momentum-based performance metrics, such as weighted scores.
+                Offer structured, professional-level analysis across individual tickers and sector insights within a single dataset.
 
-                    Briefly describe the dataset and the purpose of the analysis.
-                    Explain the metrics used (e.g., weighted scores, Rate of Change (ROC), Momentum, RSI) and their relevance.
-                    Highlight the key areas of focus: individual company performance, group-level trends, sector-specific insights, and cross-group comparisons.
-                    Example:
-                    “This analysis evaluates two groups of companies based on their weighted scores, derived from key financial indicators. The objective is to identify momentum leaders, sectoral trends, and actionable investment opportunities.”
+                Audience and Tone:
+                Audience: Investment analysts or finance professionals.
+                Tone: Professional, data-driven, and insightful.
 
-                    Group-Level Momentum Comparison
+                Output Structure:
+                1. Introduction
+                - Describe the dataset and purpose of the analysis.
+                - Explain the metrics used: Weighted Score (derived from RSI, Rate of Change, Momentum).
 
-                    Compare statistical metrics for each group:
-                    Mean, range, and standard deviation of weighted scores.
-                    Use percentage differences to emphasize comparative insights.
-                    Summarize which group demonstrates stronger momentum and explain why.
-                    Example:
+                2. Ticker Performance Comparison
+                - Compare all tickers statistically.
+                - Report the mean, range, and standard deviation of scores.
+                - Rank tickers by momentum performance.
+                - Identify top and bottom performers, and any clustering of strong/weak momentum.
 
-                    “Group 2 outperforms Group 1 by 25.43%, driven by higher variability and standout performers within the pharmaceuticals sector.”
-                    Individual Company Analysis
+                3. Individual Ticker Analysis
+                - For each ticker, present:
+                  • Ticker Symbol
+                  • Company Name (if known)
+                  • Sector (if available)
+                  • Weighted Score
+                  • One-sentence performance insight
 
-                    List each company, grouped by dataset, and include:
-                    Ticker: Stock symbol for identification.
-                    Company Name: Translate tickers to company names if possible.
-                    Sector: Industry classification.
-                    Weighted Score: Performance metric.
-                    Insight: Brief explanation of its momentum performance and potential drivers.
-                    Example:
+                4. Sector Analysis
+                - Group tickers by sector (if sector info is available).
+                - Identify sector-wide performance trends.
+                - Note any standout or underperforming sectors.
 
-                    CRSP (CRISPR Therapeutics) – Biotechnology
-                    Weighted Score: 0.408
-                    Momentum Insight: “CRISPR leads Group 1, driven by advancements in gene-editing technology, reflecting strong sectoral innovation.”
-                    Sector-Specific Analysis
+                5. Key Takeaways & Investment Recommendations
+                - Summarize strongest-performing tickers.
+                - Highlight sector trends.
+                - Offer actionable ideas (e.g., tickers to monitor, momentum leaders).
 
-                    Evaluate sector representation within each group.
-                    Discuss trends impacting sector momentum (e.g., innovation, market stability, macroeconomic factors).
-                    Highlight diversification or concentration effects on overall group performance.
-                    Example:
+                Notes:
+                - Adjust section structure if some metadata (e.g., sectors) is missing.
+                - Avoid comparing to a benchmark—focus is on intra-group dynamics and ranking.
+                - Maintain a concise, clear tone suitable for analyst reporting.
+                """
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"""Please analyze the following ticker dataset using momentum-based metrics and provide structured insights.
 
-                    “Group 1 is biotechnology-heavy, resulting in consistent but modest momentum. In contrast, Group 2 includes pharmaceuticals, biotechnology, and healthcare services, offering higher momentum and diversification.”
-                    Cross-Group Sector Comparison
+                Dataset: {portfolio_results}
 
-                    Compare sectoral dynamics across groups:
-                    Which sectors drive momentum in each group?
-                    What are the strengths and weaknesses of each group’s sector composition?
-                    Discuss trends and differences in sector contributions to performance.
-                    Example:
+                Goals:
+                - Compare tickers against one another based on average weighted score.
+                - Rank the tickers and identify leaders/laggards.
+                - Provide sector-level analysis if sector data is available.
+                - Offer investment recommendations based on the momentum trends observed.
+                """
+            ),
+        },
+    ]
+)
 
-                    “Pharmaceutical giants in Group 2 outpace Group 1’s biotech companies, reflecting stability from established revenue streams.”
-                    Key Takeaways and Recommendations
-
-                    Summarize the key findings, focusing on:
-                    Group-level momentum.
-                    Sector trends.
-                    Top-performing companies.
-                    Provide actionable investment recommendations:
-                    Which group, sector, or company should be prioritized for different strategies (e.g., high-growth, risk-averse)?
-                    Example:
-
-                    “Group 2 is the clear leader in momentum, with Regeneron and Vertex offering the strongest growth opportunities. Analysts should prioritize Group 2 while maintaining exposure to Group 1 for stability.”
-                    4. Instructions for Analysis Workflow
-                    Load and Preprocess Data:
-
-                    Import datasets and ensure columns are standardized (e.g., ticker, weighted score, sector).
-                    Compute statistical metrics (mean, range, standard deviation) for each group.
-                    Calculate Comparisons:
-
-                    Use percentage differences to compare group averages and identify standout performers.
-                    Company-Specific Analysis:
-
-                    Match tickers to company names and sectors if not directly provided.
-                    Generate concise momentum insights for each company.
-                    Sector-Specific Analysis:
-
-                    Categorize companies by sector and evaluate sector-wide trends influencing performance.
-                    Cross-Group Analysis:
-
-                    Compare sectoral representation and contributions to overall momentum.
-                    Generate Output:
-
-                    Structure the output according to the template provided, ensuring logical flow and clear insights.
-                    5. Notes for Adaptability
-                    Dynamic Structure: Ensure the structure adapts to the dataset content (e.g., if new sectors appear, integrate them into sector-specific and cross-group analysis).
-                    Language Precision: Always aim for clarity, using terminology familiar to investment analysts without unnecessary complexity.
-                    Actionable Insights: Emphasize recommendations that directly support investment decision-making.
-                    """
-                                        #Add Press releases, investor oppinions (X), First World Pharma, Bloomberg, Market Watch, seperate segment,add sources, add graphs
-                    
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f""""Using the two datasets provided below, perform a comprehensive momentum analysis. Structure the output as follows:
-
-                    Introduction: Briefly describe the datasets and analysis objectives.
-                    Group-Level Momentum Comparison: Compare the performance of the two groups, highlighting key statistics (e.g., mean, range, standard deviation) and percentage differences. Identify which group demonstrates stronger momentum.
-                    Individual Company Analysis: Analyze each company within the groups. Include the ticker, company name, sector, weighted score, and a brief explanation of the company’s momentum.
-                    Sector-Specific Analysis: Evaluate trends within each group by sector. Discuss how sector representation influences momentum.
-                    Cross-Group Sector Comparison: Compare sector dynamics across the two groups. Highlight strengths, weaknesses, and trends contributing to performance differences.
-                    Key Takeaways and Recommendations: Summarize findings, identify top performers, and provide actionable investment recommendations.
-                    Tone: Use professional, analytical language targeted at investment analysts. Focus on delivering clear, data-driven insights and actionable recommendations
-
-                    Group 1 Data: {portfolio_results}
-                    Group 2 Data: {benchmark_results}
-                    """
-                ),
-            },
-        ]
-    )
-
-    # Extract and return the AI-generated response
-    response = chat_completion.choices[0].message.content
-    return response
+response = chat_completion.choices[0].message.content
+return response
 
 
 # Streamlit App
@@ -289,18 +236,18 @@ def main():
 
     if input_method == "Upload CSVs":
         portfolio_file = st.sidebar.file_uploader("Upload Group 1 Tickers CSV", type="csv")
-        benchmark_file = st.sidebar.file_uploader("Upload Group 2 Tickers CSV", type="csv")
-        if portfolio_file and benchmark_file:
+        #benchmark_file = st.sidebar.file_uploader("Upload Group 2 Tickers CSV", type="csv")
+        if portfolio_file:
             portfolio_df = pd.read_csv(portfolio_file)
-            benchmark_df = pd.read_csv(benchmark_file)
-            if 'Ticker' not in portfolio_df.columns or 'Ticker' not in benchmark_df.columns:
-                st.error("Both CSVs must contain a 'Ticker' column.")
+            #benchmark_df = pd.read_csv(benchmark_file)
+            if 'Ticker' not in portfolio_df.columns:
+                st.error("CSV must contain a 'Ticker' column.")
                 return
     else:
         portfolio_tickers = st.sidebar.text_area("Enter Portfolio Tickers (comma-separated)")
-        benchmark_tickers = st.sidebar.text_area("Enter Benchmark Tickers (comma-separated)")
+        #benchmark_tickers = st.sidebar.text_area("Enter Benchmark Tickers (comma-separated)")
         portfolio_df = pd.DataFrame({"Ticker": portfolio_tickers.split(",")})
-        benchmark_df = pd.DataFrame({"Ticker": benchmark_tickers.split(",")})
+        #benchmark_df = pd.DataFrame({"Ticker": benchmark_tickers.split(",")})
 
     if st.sidebar.button("Run Analysis"):
         indicator_weights = {"RSI": 0.1, "ROC": 0.8, "Momentum": 0.1}
@@ -314,9 +261,9 @@ def main():
 
             st.write("Finished Portfolio Analysis...")
 
-            with st.spinner("Analyzing Benchmark Data..."):
-                benchmark_results = calculate_scores(benchmark_df,indicator_weights,timeframe)
-                progress_bar.progress(75)
+            #with st.spinner("Analyzing Benchmark Data..."):
+                #benchmark_results = calculate_scores(benchmark_df,indicator_weights,timeframe)
+                #progress_bar.progress(75)
 
             st.write("Comparing with Benchmark...")
 

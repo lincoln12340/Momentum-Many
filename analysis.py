@@ -126,21 +126,8 @@ def calculate_scores(components, indicator_weights,timeframe):
     return pd.DataFrame(results)
 
 # Function to compare portfolio and benchmark
+
 def portfolio_vs_benchmark(portfolio_results):
-    
-    #portfolio_score = portfolio_results['Average_Weighted_Score'].mean()
-    #benchmark_score = benchmark_results['Average_Weighted_Score'].mean()
-
-    # Determine momentum direction
-    #portfolio_direction = "upward" if portfolio_score > benchmark_score else "downward"
-
-    # Identify single components impacting results significantly
-    #top_portfolio_contributors = portfolio_results.nlargest(3, 'Average_Weighted_Score')
-    #top_benchmark_contributors = benchmark_results.nlargest(3, 'Average_Weighted_Score')
-    
-
-  
-
     chat_completion = client.chat.completions.create(
     model="gpt-4o",
     messages=[
@@ -214,6 +201,9 @@ def portfolio_vs_benchmark(portfolio_results):
 
 response = chat_completion.choices[0].message.content
 return response
+
+    
+
 
 
 # Streamlit App

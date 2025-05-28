@@ -126,7 +126,7 @@ def calculate_scores(components, indicator_weights,timeframe):
     return pd.DataFrame(results)
 
 # Function to compare portfolio and benchmark
-def portfolio_vs_benchmark(portfolio_results, benchmark_results):
+def portfolio_vs_benchmark(portfolio_results):
     
     #portfolio_score = portfolio_results['Average_Weighted_Score'].mean()
     #benchmark_score = benchmark_results['Average_Weighted_Score'].mean()
@@ -268,7 +268,7 @@ def main():
             st.write("Comparing with Benchmark...")
 
             with st.spinner("Generating Final Report..."):
-                analysis = portfolio_vs_benchmark(portfolio_results, benchmark_results)
+                analysis = portfolio_vs_benchmark(portfolio_results)
                 progress_bar.progress(100)
 
             st.write("Completed")
@@ -293,15 +293,15 @@ def main():
             )
             st.plotly_chart(fig)
 
-            st.subheader("Benchmark Contribution by Ticker")
-            fig = px.bar(
-                benchmark_results,
-                x='Ticker',
-                y='Average_Weighted_Score',
-                title='Benchmark Contribution by Ticker',
-                labels={'Average_Weighted_Score': 'Average Weighted Score'}
-            )
-            st.plotly_chart(fig)
+            #st.subheader("Benchmark Contribution by Ticker")
+            #fig = px.bar(
+                #benchmark_results,
+                #x='Ticker',
+                #y='Average_Weighted_Score',
+                #title='Benchmark Contribution by Ticker',
+                #labels={'Average_Weighted_Score': 'Average Weighted Score'}
+            #)
+            #st.plotly_chart(fig)
 
         ovr_result = gather_data(portfolio_results, benchmark_results, analysis)
         st.session_state["gathered_data"] = ovr_result

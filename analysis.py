@@ -52,11 +52,10 @@ def fetch_alpha_vantage_data(ticker, period):
         st.error(f"Alpha Vantage Error: {str(e)}")
         return None
 
-def gather_data(portfolio_results, benchmark_results, Results):
+def gather_data(portfolio_results, Results):
     gathered_data = {
         
         "Portfolio Results": portfolio_results.to_dict(orient="records"),
-        "Benchmark Results": benchmark_results.to_dict(orient="records"),
         "Overall Results": Results
     }
 

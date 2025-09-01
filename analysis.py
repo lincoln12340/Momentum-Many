@@ -1,301 +1,669 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
+import requests
+import numpy as np
 from openai import OpenAI
 import plotly.express as px
-from alpha_vantage.timeseries import TimeSeries
-import time
+from bs4 import BeautifulSoup
+from ta_prompt import SUMMARY2
+import re
+import markdown2
+import json
+from news_analysis import get_news_sentiment_gathered_data
+from news_prompt import system_prompt_html
+st.set_page_config(page_title="Many vs Many", layout="wide")
+# --- API Keys ---
+API_KEY = st.secrets["MARKETSTACK_API_KEY"]
+OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
+client = OpenAI(api_key=OPENAI_KEY)
 
-api_key = st.secrets["OPENAI_API_KEY"]
-alpha_vantage_key = st.secrets["ALPHA_VANTAGE_API_KEY"]
-client = OpenAI(api_key= api_key)
+# Optional ticker mapping
+MARKETSTACK_TICKER_MAP = {}
 
-@st.cache_data(ttl=3600)
-def fetch_alpha_vantage_data(ticker, period):
-    """Fetch data from Alpha Vantage and filter by period"""
-    ts = TimeSeries(key=alpha_vantage_key, output_format='pandas')
-    
+def update_progress(progress_bar, stage, progress, message):
+    progress_bar.progress(progress)
+    st.text(message)
+    st.empty()
+
+# --- Fetch from Marketstack ---
+def fetch_marketstack_data(ticker, period):
+    ticker = MARKETSTACK_TICKER_MAP.get(ticker, ticker)
+
+    period_map = {
+        "3 Months": 65,
+        "6 Months": 130,
+        "1 Year": 260
+    }
+    limit = period_map.get(period, 260)
+
+    url = f"http://api.marketstack.com/v2/tickers/{ticker}/eod?access_key={API_KEY}&limit={limit}"
+
     try:
-        # Get full daily data (we'll filter it later)
-        data, meta_data = ts.get_daily(symbol=ticker, outputsize='full')
-        data.index = pd.to_datetime(data.index)
-        
-        # Filter based on selected period
-        today = pd.Timestamp.today()
-        period_map = {
-            "3 Months": 90,
-            "6 Months": 180,
-            "1 Year": 365
-        }
-        cutoff_days = period_map.get(period, 365)
-        cutoff_date = today - pd.Timedelta(days=cutoff_days)
+        response = requests.get(url)
+        response.raise_for_status()
+        json_response = response.json()
+        eod_data = json_response.get("data", {}).get("eod", [])
+        if not eod_data:
+            return None
 
-        filtered_data = data[data.index >= cutoff_date]
+        df = pd.DataFrame(eod_data)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").set_index("date")
+        df = df[["open", "high", "low", "close", "volume", "symbol", "exchange"]]
+        df.columns = [col.capitalize() for col in df.columns]
 
+        # Resample weekly OHLCV
         
-        #filtered_data = data.last(period_map.get(period, "1Y"))
-        
-        # Rename columns to match yfinance format
-        filtered_data = filtered_data.rename(columns={
-            '1. open': 'Open',
-            '2. high': 'High',
-            '3. low': 'Low',
-            '4. close': 'Close',
-            '5. volume': 'Volume'
-        })
-        st.write(filtered_data)
-        
-        return filtered_data.sort_index()
-    
+        return df
     except Exception as e:
-        st.error(f"Alpha Vantage Error: {str(e)}")
+        st.error(f"Marketstack API Error for {ticker}: {e}")
         return None
 
-def gather_data(portfolio_results, Results):
-    gathered_data = {
-        
-        "Portfolio Results": portfolio_results.to_dict(orient="records"),
-        "Overall Results": Results
-    }
-
-    return gathered_data
-# Function to calculate indicators
-def calculate_indicators(data):
-    data['RSI'] = ta.rsi(data['Close'], length=14)
-    data['ROC'] = ta.roc(data['Close'], length=12)
-    data['Momentum'] = ta.mom(data['Close'], length=10)
-    return data
-
-# Function to calculate indicators with weights
-def calculate_indicators_with_weights(data, weights):
-    data = calculate_indicators(data)
-    data['RSI_norm'] = (data['RSI'] - data['RSI'].min()) / (data['RSI'].max() - data['RSI'].min())
-    data['ROC_norm'] = (data['ROC'] - data['ROC'].min()) / (data['ROC'].max() - data['ROC'].min())
-    data['Momentum_norm'] = (data['Momentum'] - data['Momentum'].min()) / (data['Momentum'].max() - data['Momentum'].min())
-    data['Weighted_Score'] = (
-        weights['RSI'] * data['RSI_norm'] +
-        weights['ROC'] * data['ROC_norm'] +
-        weights['Momentum'] * data['Momentum_norm']
-    )
-    return data[['Close', 'RSI', 'ROC', 'Momentum', 'Weighted_Score']]
-
-# Function to check ticker validity and download data
-def check_ticker_validity_and_download(tickers,timeframe):
-    validity_results = []
-    data_dict = {}
-    
-    for ticker in tickers:
-        
-            #if timeframe == "3 Months":
-                #data = yf.download(ticker, period="3mo")
-            #elif timeframe == "6 Months":
-                #data = yf.download(ticker, period="6mo")
-            #elif timeframe == "1 Year":
-                #data = yf.download(ticker, period="1y")
-
-            #data.columns = data.columns.droplevel(1)
-        data = fetch_alpha_vantage_data(ticker, timeframe)
-           
-            
-        if not data.empty:
-            validity_results.append({"Ticker": ticker, "Valid": True})
-            data_dict[ticker] = data
-        else:
-            validity_results.append({"Ticker": ticker, "Valid": False})
-
-
-    return pd.DataFrame(validity_results), data_dict
-
-# Function to calculate scores
-def calculate_scores(components, indicator_weights,timeframe):
-    valid_tickers_df, data_dict = check_ticker_validity_and_download(components['Ticker'],timeframe)
-    merged_data = pd.merge(components, valid_tickers_df, on="Ticker")
-    valid_tickers_data = merged_data[merged_data['Valid'] == True]
-    results = []
-    for _, row in valid_tickers_data.iterrows():
-        ticker = row['Ticker']
-        try:
-            data = data_dict[ticker]
-            data_weighted = calculate_indicators_with_weights(data, indicator_weights)
-            avg_weighted_score = data_weighted['Weighted_Score'].mean()
-            results.append({"Ticker": ticker, "Average_Weighted_Score": avg_weighted_score})
-        except Exception:
-            results.append({"Ticker": ticker, "Average_Weighted_Score": None})
-    return pd.DataFrame(results)
-
-# Function to compare portfolio and benchmark
-
-def portfolio_vs_benchmark(portfolio_results):
+def bollingerbands(company_name, data_text):
     chat_completion = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {
                 "role": "system",
-                "content": (
-                    """Purpose of the Analysis 
-                    The output is designed to:
-    
-                    Provide actionable insights for investment analysts.
-                    Focus on momentum-based performance metrics, such as weighted scores.
-                    Offer structured, professional-level analysis across individual tickers and sector insights within a single dataset.
-    
-                    Audience and Tone:
-                    Audience: Investment analysts or finance professionals.
-                    Tone: Professional, data-driven, and insightful.
-    
-                    Output Structure:
-                    1. Introduction
-                    - Describe the dataset and purpose of the analysis.
-                    - Explain the metrics used: Weighted Score (derived from RSI, Rate of Change, Momentum).
-    
-                    2. Ticker Performance Comparison
-                    - Compare all tickers statistically.
-                    - Report the mean, range, and standard deviation of scores.
-                    - Rank tickers by momentum performance.
-                    - Identify top and bottom performers, and any clustering of strong/weak momentum.
-    
-                    3. Individual Ticker Analysis
-                    - For each ticker, present:
-                      • Ticker Symbol
-                      • Company Name (if known)
-                      • Sector (if available)
-                      • Weighted Score
-                      • One-sentence performance insight
-    
-                    4. Sector Analysis
-                    - Group tickers by sector (if sector info is available).
-                    - Identify sector-wide performance trends.
-                    - Note any standout or underperforming sectors.
-    
-                    5. Key Takeaways & Investment Recommendations
-                    - Summarize strongest-performing tickers.
-                    - Highlight sector trends.
-                    - Offer actionable ideas (e.g., tickers to monitor, momentum leaders).
-    
-                    Notes:
-                    - Adjust section structure if some metadata (e.g., sectors) is missing.
-                    - Avoid comparing to a benchmark—focus is on intra-group dynamics and ranking.
-                    - Maintain a concise, clear tone suitable for analyst reporting.
-                    """
-                ),
+                "content": "You are an AI model designed to assist long-term day traders in analyzing stock market data. "
+                    "Your primary task is to interpret stock trading data, especially focusing on Bollinger Bands, "
+                    "to identify key market trends. When provided with relevant data you will: "
+                    "Analyze the stock's current position relative to its Bollinger Bands (upper, middle, or lower bands) and provide insights."
             },
             {
                 "role": "user",
-                "content": (
-                    f"""Please analyze the following ticker dataset using momentum-based metrics and provide structured insights.
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the Bollinger Bands indicator."
+            },
+        ]
+    )
+    response = chat_completion.choices[0].message.content
+    return response
+def SMA(company_name,data_text):
     
-                    Dataset: {portfolio_results}
-    
-                    Goals:
-                    - Compare tickers against one another based on average weighted score.
-                    - Rank the tickers and identify leaders/laggards.
-                    - Provide sector-level analysis if sector data is available.
-                    - Offer investment recommendations based on the momentum trends observed.
-                    """
-                ),
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            # System message to define the assistant's behavior
+            {
+                "role": "system",
+                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
+                    "Your primary task is to interpret stock trading data, especially focusing on 20, 50, and 200 Simple Moving Averages (SMA),"
+                    "to identify key market trends. When provided with relevant data you will:"
+                    "\n- Analyze the stock's current position relative to its 20, 50, and 200 SMAs."
+                    "\n- Assess if the stock is in an uptrend, downtrend, or nearing a breakout based on the relationships between the SMAs."
+                    "\n- Determine if the stock is prone to a reversal by analyzing price movements, SMA crossovers, and the stock's position relative to key SMAs."
+                    "\n- Provide a concise, expert-level explanation of your analysis, including how specific SMA characteristics (e.g., crossovers, price deviation from SMAs, trend strength)"
+                    "indicate potential market moves."
+                    "\n\nEnsure that your explanations are clear and easy to understand, even for users with little to no trading experience, avoiding complex jargon or offering simple definitions where necessary."
+                    "Your output should balance depth and simplicity, offering actionable insights for traders while being accessible to non-traders."
+                
+            },
+            # User message with a prompt requesting stock analysis for a specific company
+            {
+                "role": "user",
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the SMA indicator."
+
             },
         ]
     )
 
+# Output the AI's response
     response = chat_completion.choices[0].message.content
     return response
 
+
+def RSI(company_name,data_text):
+    
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            # System message to define the assistant's behavior
+            {
+                "role": "system",
+                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
+                    "Your primary task is to interpret stock trading data, especially focusing on the Relative Strength Index (RSI),"
+                    "to identify key market trends. When provided with relevant data you will:"
+
+                    "\n- Analyze the stock's current RSI values to determine if it is overbought, oversold, or in a neutral range."
+                    "\n- Assess if the stock is in an uptrend, downtrend, or nearing a potential reversal based on RSI levels and patterns."
+                    "\n- Determine if the stock is prone to a reversal by analyzing RSI divergences (bullish or bearish), overbought/oversold conditions, and the stock's momentum."
+                    "\n- Provide a concise, expert-level explanation of your analysis, including how specific RSI characteristics (e.g., divergence, trend strength, threshold breaches)"
+                    "indicate potential market moves."
+                
+            },
+            # User message with a prompt requesting stock analysis for a specific company
+            {
+                "role": "user",
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the RSI indicator."
+
+            },
+        ]
+    )
+
+# Output the AI's response
+    response = chat_completion.choices[0].message.content
+    return response
+
+def MACD(company_name,data_text):
+    
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            # System message to define the assistant's behavior
+            {
+                "role": "system",
+                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
+                    "Your primary task is to interpret stock trading data, especially focusing on the MACD (Moving Average Convergence Divergence), MACD Signal Line, and MACD Histogram,"
+                    "to identify key market trends. When provided with relevant data you will:"
+                    "\n- Analyze the stock's MACD line, Signal Line, and Histogram to assess trend strength and potential price direction."
+                    "\n- Assess if the stock is in an uptrend, downtrend, or nearing a crossover by analyzing the MACD line relative to the Signal Line."
+                    "\n- Determine if the stock is prone to a reversal by examining MACD crossovers, divergences, and changes in the MACD Histogram."
+                    "\n- Provide a concise, expert-level explanation of your analysis, including how specific MACD characteristics (e.g., crossover points, divergence, histogram changes)"
+                    "indicate potential market moves."
+                    "\n\nEnsure that your explanations are clear and easy to understand, even for users with little to no trading experience, avoiding complex jargon or offering simple definitions where necessary."
+                    "Your output should balance depth and simplicity, offering actionable insights for traders while being accessible to non-traders."
+                
+            },
+            # User message with a prompt requesting stock analysis for a specific company
+            {
+                "role": "user",
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the MACD indicator."
+
+            },
+        ]
+    )
+
+# Output the AI's response
+    response = chat_completion.choices[0].message.content
+    return response
+
+
+def OBV(company_name,data_text):
+    
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            # System message to define the assistant's behavior
+            {
+                "role": "system",
+                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
+                    "Your primary task is to interpret stock trading data, especially focusing on On-Balance Volume (OBV),"
+                    "to identify key market trends. When provided with relevant data you will:"
+
+                    "\n\n- Read and extract relevant data from PDF and CSV files."
+                    "\n- Analyze the stock's OBV to assess the relationship between volume and price movement."
+                    "\n- Assess if the stock is in an uptrend, downtrend, or nearing a breakout by evaluating OBV trends and volume momentum."
+                    "\n- Determine if the stock is prone to a reversal by analyzing OBV divergences (where OBV moves in the opposite direction of price), which can signal potential trend changes."
+                    "\n- Provide a concise, expert-level explanation of your analysis, including how specific OBV characteristics (e.g., divergence, volume spikes, confirmation of price moves)"
+                    "indicate potential market moves."
+
+                    "\n\nEnsure that your explanations are clear and easy to understand, even for users with little to no trading experience, avoiding complex jargon or offering simple definitions where necessary."
+                    "Your output should balance depth and simplicity, offering actionable insights for traders while being accessible to non-traders."
+                
+            },
+            # User message with a prompt requesting stock analysis for a specific company
+            {
+                "role": "user",
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the OBV indicator."
+
+            },
+        ]
+    )
+
+# Output the AI's response
+    response = chat_completion.choices[0].message.content
+    return response
+
+
+def ADX(company_name,data_text):
+    
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            # System message to define the assistant's behavior
+            {
+                "role": "system",
+                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
+                    "Your primary task is to interpret stock trading data, especially focusing on the Average Directional Index (ADX),"
+                    "to identify key market trends. When provided with relevant data you will:"
+
+                    "\n- Analyze the stock's ADX values to assess the strength of the current trend, regardless of its direction."
+                    "\n- Assess if the stock is in a strong or weak trend based on ADX levels, with particular attention to rising or falling ADX values."
+                    "\n- Determine if the stock is prone to a trend reversal by analyzing ADX indicating whether the market is gaining or losing trend strength."
+                    "\n- Provide a concise, expert-level explanation of your analysis, including how specific ADX characteristics (e.g., ADX crossovers, trend strength, or weakening trends)"
+                    "indicate potential market moves."
+
+                    "\n\nEnsure that your explanations are clear and easy to understand, even for users with little to no trading experience, avoiding complex jargon or offering simple definitions where necessary."
+                    "Your output should balance depth and simplicity, offering actionable insights for traders while being accessible to non-traders."
+                
+            },
+            # User message with a prompt requesting stock analysis for a specific company
+            {
+                "role": "user",
+                "content": f"Provide a concise analysis of {company_name} using the given stock data {data_text}, focusing only on insights from the ADX indicator."
+                
+            },
+        ]
+    )
+
+# Output the AI's response
+    response = chat_completion.choices[0].message.content
+    return response
+
+
+# --- Technical indicators with weights ---
+def calculate_technical_indicators(data, ticker, weight_choice=None):
+    """
+    Calculate various technical indicators, prepare them for AI analysis,
+    and compute a weighted technical score.
+
+    Args:
+        data (pd.DataFrame): The input financial data.
+        ticker (str): The stock ticker.
+        weights (dict): Optional dict of weights for each indicator.
+
+    Returns:
+        Tuple: (results dict, recent_data, availability, scores, weighted_score)
+    """
+    short_term_weights = {
+    "sma": 0.1,
+    "rsi": 0.3,
+    "macd": 0.3,
+    "obv": 0.1,
+    "adx": 0.1,
+    "bbands": 0.1
+    }
+    long_term_weights = {
+        "sma": 0.4,
+        "rsi": 0.1,
+        "macd": 0.15,
+        "obv": 0.15,
+        "adx": 0.2,
+        "bbands": 0.0
+    }
+
+    weights = {
+            "sma": 0.2,
+            "rsi": 0.2,
+            "macd": 0.2,
+            "obv": 0.2,
+            "adx": 0.2,
+            "bbands": 0.0  # Set to 0 if not using
+        }
+
+# Choose the right weights
+    if weight_choice == "Short Term":
+        weights = short_term_weights
+    if weight_choice == "Long Term":
+        weights = long_term_weights
+    if weight_choice == "Default":
+        weights = weights
+
+    # --- Default Weights if not provided ---
+
+    # Initialize availability flags
+    sma_available = False
+    rsi_available = False
+    macd_available = False
+    obv_available = False
+    adx_available = False
+    bbands_available = False
+
+    # --- Calculate SMA ---
+    if 'Close' in data.columns:
+        data['SMA_20'] = ta.sma(data['Close'], length=20)
+        data['SMA_50'] = ta.sma(data['Close'], length=50)
+        data['SMA_200'] = ta.sma(data['Close'], length=200)
+        sma_available = data[['SMA_20', 'SMA_50', 'SMA_200']].notna().any().any()
+
+    # --- Calculate RSI ---
+    if 'Close' in data.columns:
+        data['RSI'] = ta.rsi(data['Close'], length=14)
+        rsi_available = 'RSI' in data.columns and data['RSI'].notna().any()
+
+    # --- Calculate MACD ---
+    macd = ta.macd(data['Close'])
+    if macd is not None and all(col in macd.columns for col in ['MACD_12_26_9', 'MACDs_12_26_9', 'MACDh_12_26_9']):
+        data['MACD'] = macd['MACD_12_26_9']
+        data['MACD_signal'] = macd['MACDs_12_26_9']
+        data['MACD_hist'] = macd['MACDh_12_26_9']
+        macd_available = True
+
+    # --- Calculate OBV ---
+    if 'Close' in data.columns and 'Volume' in data.columns:
+        data['OBV'] = ta.obv(data['Close'], data['Volume'])
+        obv_available = 'OBV' in data.columns and data['OBV'].notna().any()
+
+    # --- Calculate ADX ---
+    adx = ta.adx(data['High'], data['Low'], data['Close'])
+    if adx is not None and 'ADX_14' in adx.columns:
+        data['ADX'] = adx['ADX_14']
+        adx_available = True
+
+    # --- Calculate Bollinger Bands ---
+    bbands = ta.bbands(data['Close'], length=20, std=2)
+    if bbands is not None and all(col in bbands.columns for col in ['BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0']):
+        data['upper_band'] = bbands['BBU_20_2.0']
+        data['middle_band'] = bbands['BBM_20_2.0']
+        data['lower_band'] = bbands['BBL_20_2.0']
+        bbands_available = True
+
+    # --- Resample data weekly ---
+    data = data.resample('W').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum',
+        'SMA_20': 'last',
+        'SMA_50': 'last',
+        'SMA_200': 'last',
+        'RSI': 'last',
+        'MACD': 'last',
+        'MACD_signal': 'last',
+        'MACD_hist': 'last',
+        'OBV': 'last',
+        'ADX': 'last',
+        'upper_band': 'last',
+        'middle_band': 'last',
+        'lower_band': 'last'
+    })
+
+    # --- Prepare data for analysis ---
+    recent_data = data
+
+    # --- Run your original analysis functions (these return text) ---
+    results = {
+        "bd_result": bollingerbands(ticker, recent_data[["Open", "High", "Low", "Close", "Volume", "upper_band", "middle_band", "lower_band"]].to_markdown()),
+        "sma_result": SMA(ticker, recent_data[["Open", "High", "Low", "Close", "SMA_20", "SMA_50", "SMA_200"]].to_markdown()) if sma_available else "SMA analysis not available.",
+        "rsi_result": RSI(ticker, recent_data[["Open", "High", "Low", "Close", "RSI"]].to_markdown()) if rsi_available else "RSI analysis not available.",
+        "macd_result": MACD(ticker, recent_data[["Open", "High", "Low", "Close", "MACD", "MACD_signal", "MACD_hist"]].to_markdown()) if macd_available else "MACD analysis not available.",
+        "obv_result": OBV(ticker, recent_data[["Open", "High", "Low", "Close", "Volume", "OBV"]].to_markdown()) if obv_available else "OBV analysis not available.",
+        "adx_result": ADX(ticker, recent_data[["Open", "High", "Low", "Close", "ADX"]].to_markdown()) if adx_available else "ADX analysis not available."
+    }
+
+    availability = {
+        "sma_available": sma_available,
+        "rsi_available": rsi_available,
+        "macd_available": macd_available,
+        "obv_available": obv_available,
+        "adx_available": adx_available,
+        "bbands_available": bbands_available
+    }
+
+    indicator_scores = {k: [] for k in weights}
+
+    for _, week in data.iterrows():
+    # SMA
+        if availability['sma_available'] and pd.notna(week['Close']) and pd.notna(week['SMA_20']):
+            score = 1 if week['Close'] > week['SMA_20'] else -1
+            indicator_scores['sma'].append(score)
+        # RSI
+        if availability['rsi_available'] and pd.notna(week['RSI']):
+            if week['RSI'] > 55:
+                score = 1
+            elif week['RSI'] < 45:
+                score = -1
+            else:
+                score = 0
+            indicator_scores['rsi'].append(score)
+        # MACD
+        if availability['macd_available'] and pd.notna(week['MACD']) and pd.notna(week['MACD_signal']):
+            score = 1 if week['MACD'] > week['MACD_signal'] else -1
+            indicator_scores['macd'].append(score)
+        # OBV
+        if availability['obv_available'] and pd.notna(week['OBV']):
+            if week['OBV'] > 0:
+                score = 1
+            elif week['OBV'] < 0:
+                score = -1
+            else:
+                score = 0
+            indicator_scores['obv'].append(score)
+        # ADX
+        if availability['adx_available'] and pd.notna(week['ADX']):
+            score = 1 if week['ADX'] > 20 else -1
+            indicator_scores['adx'].append(score)
+        # BBands
+        if availability['bbands_available'] and pd.notna(week['Close']) and pd.notna(week['middle_band']):
+            score = 1 if week['Close'] > week['middle_band'] else -1
+            indicator_scores['bbands'].append(score)
+
+    # Aggregate: take the mean (average) score for each indicator
+    import numpy as np
+    final_scores = {}
+    for k in indicator_scores:
+        if indicator_scores[k]:  # If there are scores for that indicator
+            final_scores[k] = np.mean(indicator_scores[k])
+        else:
+            final_scores[k] = 0
+
+    # Now calculate weighted score as before, but using averages over weeks
+    total_weight = sum(weights[k] for k in final_scores if availability.get(f"{k}_available", False))
+    weighted_score = (
+        sum(final_scores[k] * weights[k] for k in final_scores if availability.get(f"{k}_available", False)) / total_weight
+        if total_weight > 0 else 0
+    )
+
+    print("Final Indicator Averages:", final_scores)
+    print("Weighted Score:", weighted_score)
     
 
+    # --- RETURN everything ---
+    return results, recent_data, availability, weighted_score
 
 
-# Streamlit App
+# --- AI Comparison ---
+
+
+def clean_html_response(response):
+    # Remove markdown formatting from response
+    if response.startswith("```html"):
+        response = response.lstrip("```html").strip()
+    if response.endswith("```"):
+        response = response.rstrip("```").strip()
+    return response
+
+def fix_html_with_embedded_markdown(text):
+    """
+    Detects markdown sections embedded within mostly-HTML output,
+    converts them to HTML, and replaces them in the text.
+    """
+    if not text:
+        return text
+
+    # Don't touch it if it's a fully valid HTML document
+    if bool(re.search(r'<html', text, re.IGNORECASE)):
+        return text
+
+    # Pattern to detect markdown-style headings, lists, bold, etc.
+    markdown_blocks = list(re.finditer(
+        r'(?:(^|\n)(\s*)(#{1,6} .+|[-*+] .+|\d+\..+|>\s.+|\*\*.+\*\*|__.+__)([\s\S]+?))(?=\n{2,}|\Z)', 
+        text,
+        flags=re.MULTILINE
+    ))
+
+    # Convert and replace each markdown block
+    for match in reversed(markdown_blocks):  # reversed to not break indices when replacing
+        md_block = match.group(0).strip()
+        # Only convert if not inside an HTML tag already
+        if not re.match(r'<[a-z][^>]*>', md_block):
+            html_block = markdown2.markdown(md_block)
+            # Optionally strip <p> if markdown2 wraps the entire block
+            if html_block.startswith('<p>') and html_block.endswith('</p>\n'):
+                html_block = html_block[3:-5]
+            # Replace markdown block with HTML
+            start, end = match.span(0)
+            text = text[:start] + html_block + text[end:]
+
+    return text
+
+def generate_news_html(gathered_data):
+    # Use the system prompt and gathered data to generate the news HTML
+    news_system_prompt = system_prompt_html
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+    
+    # Call Claude API to generate the HTML with progress indicator
+    with st.spinner("Generating investment analysis..."):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4.1",  # Use the appropriate Claude model
+                messages=[
+                    {"role": "system", "content": news_system_prompt},
+                    {"role": "user", "content": user_message}
+                ]
+            )
+            
+            # Extract the response content
+            html_content = response.choices[0].message.content
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Error generating analysis: {e}")
+            return None
+
+# --- Streamlit App ---
 def main():
+    st.title("📊 Company Technical Indicator Comparison (Marketstack)")
 
-    if "run_analysis_complete" not in st.session_state:
-        st.session_state["run_analysis_complete"] = False
+    st.sidebar.subheader("Analysis Options")
+    technical_analysis = st.sidebar.checkbox("Technical Analysis", help="Select to run technical analysis indicators")
+    news_analysis = st.sidebar.checkbox("News Analysis", help="Select to run news sentiment analysis")
 
-    st.title("Group Comparison Analysis")
+    tickers_input = st.sidebar.text_area("Enter tickers separated by commas", value="AAPL,MSFT,GOOGL")
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
-    st.sidebar.subheader("Select Timeframe for Analysis")
-    timeframe = st.sidebar.radio(
-        "Choose timeframe:",
-        ( "3 Months", "6 Months", "1 Year"),
-        index=2,
-        help="Select the period of historical data for the stock analysis")
-        
-    st.sidebar.header("Input Options")
-    input_method = st.sidebar.radio("How would you like to input the data?", ("Upload CSVs", "Enter Manually"))
+    companies = {}
+    if news_analysis:
+        st.sidebar.subheader("Company Names for News Analysis")
+        for ticker in tickers:
+            companies[ticker] = st.sidebar.text_input(
+                f"Company name for {ticker}", value=""
+            )
+    if technical_analysis:
+        timeframe = st.sidebar.radio("Choose timeframe:", ("3 Months","6 Months","1 Year"), index=2)
+        weight_choice = st.sidebar.radio("Choose weight scheme:", ("Default","Short Term","Long Term"), index=0)
 
-    if input_method == "Upload CSVs":
-        portfolio_file = st.sidebar.file_uploader("Upload Group 1 Tickers CSV", type="csv")
-        #benchmark_file = st.sidebar.file_uploader("Upload Group 2 Tickers CSV", type="csv")
-        if portfolio_file:
-            portfolio_df = pd.read_csv(portfolio_file)
-            #benchmark_df = pd.read_csv(benchmark_file)
-            if 'Ticker' not in portfolio_df.columns:
-                st.error("CSV must contain a 'Ticker' column.")
-                return
-    else:
-        portfolio_tickers = st.sidebar.text_area("Enter Portfolio Tickers (comma-separated)")
-        #benchmark_tickers = st.sidebar.text_area("Enter Benchmark Tickers (comma-separated)")
-        portfolio_df = pd.DataFrame({"Ticker": portfolio_tickers.split(",")})
-        #benchmark_df = pd.DataFrame({"Ticker": benchmark_tickers.split(",")})
 
     if st.sidebar.button("Run Analysis"):
-        indicator_weights = {"RSI": 0.1, "ROC": 0.8, "Momentum": 0.1}
         progress_bar = st.progress(0)
-        with st.expander("Progress Tracker"):
-            st.write("Starting Analysis...")
-            with st.spinner("Processing Portfolio Data..."):
-                st.write(portfolio_df)
-                portfolio_results = calculate_scores(portfolio_df,indicator_weights,timeframe)
-                progress_bar.progress(50)
-
-            st.write("Finished Portfolio Analysis...")
-
-            #with st.spinner("Analyzing Benchmark Data..."):
-                #benchmark_results = calculate_scores(benchmark_df,indicator_weights,timeframe)
-                #progress_bar.progress(75)
-
-            st.write("Comparing with Benchmark...")
-
-            with st.spinner("Generating Final Report..."):
-                analysis = portfolio_vs_benchmark(portfolio_results)
-                progress_bar.progress(100)
-
-            st.write("Completed")
-
         
+        all_gathered_data = []  # store results for all tickers
+        if technical_analysis:
 
-        with st.expander("Analysis Results"):
-            #st.markdown("### Portfolio Overall Score: {:.2f}".format(portfolio_score))
-            #st.markdown("### Benchmark Overall Score: {:.2f}".format(benchmark_score))
-            st.write(analysis)
+            for ticker in tickers:
+                company = ticker  # extend with name lookup if you want
+                data = fetch_marketstack_data(ticker, timeframe)
+                if data is None or data.empty:
+                    st.error(f"No data found for {ticker}")
+                    continue
 
-        with st.expander("Graphs"):
-            st.write(portfolio_results)
+                with st.expander(f"Downloading Data for {ticker}..."):
+                    update_progress(progress_bar, 50, 50, f"Analyzing {ticker}...")
+                    results, recent_data, availability, weighted_score = calculate_technical_indicators(
+                        data, ticker, weight_choice=weight_choice
+                    )
 
-            st.subheader("Portfolio Contribution by Ticker")
-            fig = px.bar(
-                portfolio_results,
-                x='Ticker',
-                y='Average_Weighted_Score',
-                title='Portfolio Contribution by Ticker',
-                labels={'Average_Weighted_Score': 'Average Weighted Score'}
-            )
-            st.plotly_chart(fig)
+                bd_result = results["bd_result"]
+                sma_result = results["sma_result"]
+                rsi_result = results["rsi_result"]
+                macd_result = results["macd_result"]
+                obv_result = results["obv_result"]
+                adx_result = results["adx_result"]
 
-            #st.subheader("Benchmark Contribution by Ticker")
-            #fig = px.bar(
-                #benchmark_results,
-                #x='Ticker',
-                #y='Average_Weighted_Score',
-                #title='Benchmark Contribution by Ticker',
-                #labels={'Average_Weighted_Score': 'Average Weighted Score'}
-            #)
-            #st.plotly_chart(fig)
+            gathered_data = {
+                "Ticker": ticker,
+                "Company": company,
+                "Timeframe": timeframe,
+                "data": recent_data.to_dict(orient="records"),
+                "Position_type": weight_choice,
+                "weighted_score": weighted_score,
+                "Results": {
+                    "SMA Results": sma_result,
+                    "RSI Results": rsi_result,
+                    "MACD Results": macd_result,
+                    "OBV Results": obv_result,
+                    "BD Results": bd_result,
+                    "ADX Results": adx_result
+                }
+            }
 
-        ovr_result = gather_data(portfolio_results, analysis)
-        st.session_state["gathered_data"] = ovr_result
-        st.session_state["analysis_complete"] = True  # Mark analysis as complete
-        st.success("Group analysis completed! You can now proceed to the AI Chatbot.")
+            all_gathered_data.append(gathered_data)
+
+        # ---- Now generate a combined summary once ----
+            if all_gathered_data:
+                summary = SUMMARY2(all_gathered_data)   # pass the list instead of a single dict
+                html_output_no_fix = clean_html_response(summary)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+
+                update_progress(progress_bar, 100, 100, "Finished All Tickers...")
+
+                # Render in app
+                st.components.v1.html(html_output, height=700, width=1400, scrolling=True)
+
+                # Extract plain text version
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
+
+                # Save in session state
+                st.session_state["gathered_data"] = all_gathered_data
+                st.session_state["analysis_complete"] = True
+                st.session_state["html_output"] = html_output
+                st.session_state["plain_text"] = plain_text
+
+                st.success("Stock analysis completed for all tickers! You can now proceed to the AI Chatbot.")
+
+                # Download buttons
+                st.download_button("Download as HTML", st.session_state["html_output"], "stock_analysis_summary.html", "text/html")
+                st.download_button("Download as Plain Text", st.session_state["plain_text"], "stock_analysis_summary.txt", "text/plain")
+
+                # Reset button
+                if st.button("Run Another Analysis"):
+                    st.session_state.technical_analysis = False
+                    st.session_state.news_and_events = False
+                    st.session_state["run_analysis_complete"] = False
+                    st.experimental_rerun()
+        if news_analysis:
+            timeframe_map = {
+                    "3 Months": "3m",
+                    "6 Months": "6m",
+                    "1 Year": "1y"
+                }
+
+            timeframe_key = timeframe_map.get(timeframe)
+            gathered_data_list = []
+
+            for ticker, company in zip(tickers, companies):  # tickers and companies should align
+                with st.expander(f"Downloading Data for {ticker}"):
+                    update_progress(progress_bar, 30, 30, f"Gathering News Data for {ticker}...")
+
+                    news_data = get_news_sentiment_gathered_data(
+                        ticker=ticker,
+                        period=timeframe_key,
+                        company_name=company,
+                        alpha_vantage_api_key=st.secrets["ALPHA_VANTAGE_API_KEY"],
+                        openai_api_key=st.secrets["OPENAI_API_KEY"],
+                    )
+
+                    print("News Data:", news_data)  # Debug print to check news data
+
+                    update_progress(progress_bar, 50, 50, f"Analysing News Data for {ticker}...")
+
+                    # Append news_data (already in correct schema) to master list
+                    if news_data:
+                        gathered_data_list.append(news_data)
+                    else:
+                        st.warning(f"No news data found for {ticker}")
+
+            news_html = generate_news_html(gathered_data_list)
+            html_output_no_fix = clean_html_response(news_html)
+            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+            update_progress(progress_bar, 100, 100, "")
+            st.components.v1.html(html_output, height=700, width=1400, scrolling=True)
+            
+            # Placeholder for future news analysis implementation
 
 if __name__ == "__main__":
     main()

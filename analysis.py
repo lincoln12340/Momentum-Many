@@ -12,7 +12,7 @@ import markdown2
 import json
 from news_analysis import get_news_sentiment_gathered_data
 from news_prompt import system_prompt_html
-st.set_page_config(page_title="Many vs Many", layout="wide")
+
 # --- API Keys ---
 API_KEY = st.secrets["MARKETSTACK_API_KEY"]
 OPENAI_KEY = st.secrets["OPENAI_API_KEY"]
